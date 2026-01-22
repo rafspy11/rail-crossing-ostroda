@@ -16,16 +16,3 @@ export async function getSchedules(apiKey: string, stationId: string, date: stri
   });
   return res.json();
 }
-
-export async function getStationsPage(
-  apiKey: string,
-  page: number,
-  size = 500
-) {
-  const url = `${BASE_URL}/dictionaries/stations?page=${page}&size=${size}`;
-  const res = await fetch(url, {
-    headers: { "X-API-Key": apiKey }
-  });
-  return res.json();
-}
-
