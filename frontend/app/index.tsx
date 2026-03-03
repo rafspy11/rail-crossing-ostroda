@@ -1,15 +1,12 @@
 import { useEffect, useState, useRef } from "react";
-import { View, Text, StyleSheet, Animated, Dimensions } from "react-native";
+import { View, Text, StyleSheet, Animated } from "react-native";
 import { getCrossingStatus } from "../services/api";
-
-const SCREEN_WIDTH = Dimensions.get("window").width;
 
 export default function App() {
   const [status, setStatus] = useState<any>(null);
   const [secondsCountdown, setSecondsCountdown] = useState<number | null>(null);
 
   const backgroundColor = useRef(new Animated.Value(0)).current;
-  const trainAnim = useRef(new Animated.Value(0)).current;
   const titleOpacity = useRef(new Animated.Value(1)).current;
 
   // ==================
@@ -77,36 +74,6 @@ export default function App() {
   }, [secondsCountdown]);
 
   // ==================
-  // ANIMACJA POCIĄGU NA TORZE
-  // Fixed: uses real-time Date.now() + status timestamps directly,
-  // so the interval never reads stale state.
-  // ==================
-  useEffect(() => {
-    if (!status) return;
-
-    const updateTrain = () => {
-      let progress = 0;
-
-      if (!status.closed && status.nextCloseAt) {
-        const closeAt = new Date(status.nextCloseAt).getTime();
-        // How far back did this "window" start? We assume the train was ~10 min away on fetch.
-        const windowMs = 10 * 60 * 1000;
-        const windowStart = closeAt - windowMs;
-        const now = Date.now();
-        progress = Math.min(1, Math.max(0, (now - windowStart) / windowMs));
-      } else if (status.closed) {
-        progress = 1;
-      }
-
-      trainAnim.setValue(SCREEN_WIDTH * progress);
-    };
-
-    updateTrain(); // run immediately
-    const interval = setInterval(updateTrain, 500);
-    return () => clearInterval(interval);
-  }, [status]); // only re-runs when a new status is fetched, not every second
-
-  // ==================
   // INTERPOLACJA KOLORU TŁA
   // ==================
   const bgColor = backgroundColor.interpolate({
@@ -134,12 +101,6 @@ export default function App() {
     countdownText = `Najbliższe zamknięcie za: ${min} min ${sec} s`;
   }
 
-  // kolor ikony pociągu: zielony → pomarańcz → czerwony
-  const trainColor = trainAnim.interpolate({
-    inputRange: [0, SCREEN_WIDTH * 0.5, SCREEN_WIDTH],
-    outputRange: ["#007700", "#ffaa00", "#a00000"],
-  });
-
   return (
     <Animated.View style={[styles.container, { backgroundColor: bgColor }]}>
       <Animated.Text
@@ -154,34 +115,24 @@ export default function App() {
         <Text style={styles.text}>Czas zamknięcia: {status.nextDurationMin} min</Text>
       )}
 
-      {status.train && (
-        <Text style={styles.text}>
-          🚆 {status.train.number} ({status.train.relation || "Brak danych o relacji"})
+      {/* Pociągi aktualnie na przejeździe */}
+      {status.currentTrains && status.currentTrains.map((t: any) => (
+        <Text key={t.number} style={styles.text}>
+          🚆 Pociąg nr {t.number} — odjazd {new Date(t.departure).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
         </Text>
-      )}
+      ))}
+
+      {/* Nadchodzące pociągi */}
+      {!status.closed && status.nextTrains && status.nextTrains.map((t: any) => (
+        <Text key={t.number} style={styles.text}>
+          🚆 Pociąg nr {t.number} — odjazd {new Date(t.departure).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
+        </Text>
+      ))}
 
       <Text style={styles.textSmall}>ℹ️ Informacja przybliżona, nie jest oficjalna.</Text>
       <Text style={styles.textSmall}>
         Sprawdzono: {new Date(status.checkedAt).toLocaleTimeString()}
       </Text>
-
-      {/* ================== */}
-      {/* PASEK TORU + IKONA POCIĄGU */}
-      {/* ================== */}
-      <View style={styles.trackContainer}>
-        <View style={styles.trackBackground} />
-        <Animated.Text
-          style={[
-            styles.train,
-            {
-              transform: [{ translateX: trainAnim }],
-              color: trainColor,
-            },
-          ]}
-        >
-          🚆
-        </Animated.Text>
-      </View>
     </Animated.View>
   );
 }
@@ -191,24 +142,4 @@ const styles = StyleSheet.create({
   title: { fontSize: 26, fontWeight: "bold", marginBottom: 12 },
   text: { fontSize: 20, marginVertical: 2 },
   textSmall: { fontSize: 14, marginTop: 6, color: "#555" },
-
-  trackContainer: {
-    position: "absolute",
-    bottom: 100,
-    width: "100%",
-    height: 40,
-    justifyContent: "center",
-  },
-  trackBackground: {
-    position: "absolute",
-    width: "100%",
-    height: 6,
-    backgroundColor: "#ccc",
-    borderRadius: 3,
-  },
-  train: {
-    fontSize: 30,
-    position: "absolute",
-    top: -12,
-  },
 });
