@@ -1,0 +1,1 @@
+Aplikacja mobilna informująca użytkowników o statusie przejazdów kolejowych w Ostródzie (szlaban zamknięty/otwarty)
