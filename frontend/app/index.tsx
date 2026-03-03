@@ -1,5 +1,5 @@
 import { useEffect, useState, useRef } from "react";
-import { View, Text, StyleSheet, Animated, Easing, Dimensions } from "react-native";
+import { View, Text, StyleSheet, Animated, Dimensions } from "react-native";
 import { getCrossingStatus } from "../services/api";
 
 const SCREEN_WIDTH = Dimensions.get("window").width;
@@ -8,9 +8,9 @@ export default function App() {
   const [status, setStatus] = useState<any>(null);
   const [secondsCountdown, setSecondsCountdown] = useState<number | null>(null);
 
-  const backgroundColor = useRef(new Animated.Value(0)).current; // tło: open/closed
-  const trainAnim = useRef(new Animated.Value(0)).current; // pozycja pociągu
-  const titleOpacity = useRef(new Animated.Value(1)).current; // miganie tytułu
+  const backgroundColor = useRef(new Animated.Value(0)).current;
+  const trainAnim = useRef(new Animated.Value(0)).current;
+  const titleOpacity = useRef(new Animated.Value(1)).current;
 
   // ==================
   // FETCH STATUS
@@ -39,7 +39,7 @@ export default function App() {
           Animated.timing(backgroundColor, {
             toValue: data.closed ? 1 : 0,
             duration: 500,
-            useNativeDriver: false
+            useNativeDriver: false,
           }).start();
 
           // miganie tytułu przy zamknięciu
@@ -47,10 +47,11 @@ export default function App() {
             Animated.loop(
               Animated.sequence([
                 Animated.timing(titleOpacity, { toValue: 0.3, duration: 500, useNativeDriver: true }),
-                Animated.timing(titleOpacity, { toValue: 1, duration: 500, useNativeDriver: true })
+                Animated.timing(titleOpacity, { toValue: 1, duration: 500, useNativeDriver: true }),
               ])
             ).start();
           } else {
+            titleOpacity.stopAnimation();
             titleOpacity.setValue(1);
           }
         })
@@ -58,7 +59,7 @@ export default function App() {
     };
 
     fetchStatus();
-    const interval = setInterval(fetchStatus, 30_000); // odświeżanie statusu
+    const interval = setInterval(fetchStatus, 30_000);
     return () => clearInterval(interval);
   }, []);
 
@@ -77,35 +78,40 @@ export default function App() {
 
   // ==================
   // ANIMACJA POCIĄGU NA TORZE
+  // Fixed: uses real-time Date.now() + status timestamps directly,
+  // so the interval never reads stale state.
   // ==================
   useEffect(() => {
-    if (!status || secondsCountdown === null) return;
+    if (!status) return;
 
-    const interval = setInterval(() => {
-      let progress = 0; // 0 = daleko, 1 = przy przejeździe
+    const updateTrain = () => {
+      let progress = 0;
 
       if (!status.closed && status.nextCloseAt) {
-        const total = Math.max(
-          1,
-          Math.floor((new Date(status.nextCloseAt).getTime() - Date.now()) / 1000) + secondsCountdown
-        );
-        progress = 1 - secondsCountdown / total;
-      } else if (status.closed && status.currentCloseEnd) {
-        progress = 1; // przy przejeździe
+        const closeAt = new Date(status.nextCloseAt).getTime();
+        // How far back did this "window" start? We assume the train was ~10 min away on fetch.
+        const windowMs = 10 * 60 * 1000;
+        const windowStart = closeAt - windowMs;
+        const now = Date.now();
+        progress = Math.min(1, Math.max(0, (now - windowStart) / windowMs));
+      } else if (status.closed) {
+        progress = 1;
       }
 
-      trainAnim.setValue(SCREEN_WIDTH * Math.min(Math.max(progress, 0), 1));
-    }, 500);
+      trainAnim.setValue(SCREEN_WIDTH * progress);
+    };
 
+    updateTrain(); // run immediately
+    const interval = setInterval(updateTrain, 500);
     return () => clearInterval(interval);
-  }, [status, secondsCountdown]);
+  }, [status]); // only re-runs when a new status is fetched, not every second
 
   // ==================
   // INTERPOLACJA KOLORU TŁA
   // ==================
   const bgColor = backgroundColor.interpolate({
     inputRange: [0, 1],
-    outputRange: ["#e0ffe0", "#ffcccc"]
+    outputRange: ["#e0ffe0", "#ffcccc"],
   });
 
   if (!status) {
@@ -131,7 +137,7 @@ export default function App() {
   // kolor ikony pociągu: zielony → pomarańcz → czerwony
   const trainColor = trainAnim.interpolate({
     inputRange: [0, SCREEN_WIDTH * 0.5, SCREEN_WIDTH],
-    outputRange: ["#007700", "#ffaa00", "#a00000"]
+    outputRange: ["#007700", "#ffaa00", "#a00000"],
   });
 
   return (
@@ -144,7 +150,9 @@ export default function App() {
 
       {countdownText !== "" && <Text style={styles.text}>{countdownText}</Text>}
 
-      {status.nextDurationMin && <Text style={styles.text}>Czas zamknięcia: {status.nextDurationMin} min</Text>}
+      {status.nextDurationMin && (
+        <Text style={styles.text}>Czas zamknięcia: {status.nextDurationMin} min</Text>
+      )}
 
       {status.train && (
         <Text style={styles.text}>
@@ -153,22 +161,22 @@ export default function App() {
       )}
 
       <Text style={styles.textSmall}>ℹ️ Informacja przybliżona, nie jest oficjalna.</Text>
-      <Text style={styles.textSmall}>Sprawdzono: {new Date(status.checkedAt).toLocaleTimeString()}</Text>
+      <Text style={styles.textSmall}>
+        Sprawdzono: {new Date(status.checkedAt).toLocaleTimeString()}
+      </Text>
 
       {/* ================== */}
       {/* PASEK TORU + IKONA POCIĄGU */}
       {/* ================== */}
       <View style={styles.trackContainer}>
-        {/* pasek toru */}
         <View style={styles.trackBackground} />
-        {/* pociąg animowany po torze */}
         <Animated.Text
           style={[
             styles.train,
             {
               transform: [{ translateX: trainAnim }],
-              color: trainColor
-            }
+              color: trainColor,
+            },
           ]}
         >
           🚆
@@ -184,24 +192,23 @@ const styles = StyleSheet.create({
   text: { fontSize: 20, marginVertical: 2 },
   textSmall: { fontSize: 14, marginTop: 6, color: "#555" },
 
-  // tor
   trackContainer: {
     position: "absolute",
     bottom: 100,
     width: "100%",
     height: 40,
-    justifyContent: "center"
+    justifyContent: "center",
   },
   trackBackground: {
     position: "absolute",
     width: "100%",
     height: 6,
     backgroundColor: "#ccc",
-    borderRadius: 3
+    borderRadius: 3,
   },
   train: {
     fontSize: 30,
     position: "absolute",
-    top: -12
-  }
+    top: -12,
+  },
 });
