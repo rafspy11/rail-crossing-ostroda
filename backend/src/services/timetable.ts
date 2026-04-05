@@ -1,20 +1,26 @@
 import { Request, Response } from "express";
 import { getSchedules } from "./plkApi";
- 
+
 // ==================
 // KONFIGURACJA
 // ==================
 const STATION_ID = 22004; // Ostróda
 const BUFFER_BEFORE_MIN = 6;
 const BUFFER_AFTER_MIN = 3;
- 
+
+// Przejazd leży po stronie Olsztyna.
+// Pociągi z Olsztyna mają mały orderNumber (mało przystanków przed Ostródą)
+// i mijają przejazd PRZED stacją → używamy arrivalTime.
+// Pociągi z Iławy mają duży orderNumber i mijają przejazd ZA stacją → departureTime.
+const OLSZTYN_DIRECTION_MAX_ORDER = 15;
+
 // ==================
 // CACHE
 // ==================
 let cachedData: any = null;
 let lastFetch: number = 0;
 const CACHE_TTL = 60_000; // 1 minuta w ms
- 
+
 // ==================
 // TYPY
 // ==================
@@ -22,24 +28,24 @@ interface TrainEntry {
   number: string;
   departure: string;
 }
- 
+
 interface ClosureWave {
   closeAt: Date;
   closeEnd: Date;
   trains: TrainEntry[];
 }
- 
+
 // ==================
 // HELPERY
 // ==================
 function addMinutes(date: Date, minutes: number): Date {
   return new Date(date.getTime() + minutes * 60_000);
 }
- 
+
 function buildDate(dateStr: string, timeStr: string): Date {
   return new Date(`${dateStr.slice(0, 10)}T${timeStr}`);
 }
- 
+
 // ==================
 // GRUPOWANIE POCIĄGÓW W FALE ZAMKNIĘCIA
 // Scala nakładające się lub stykające okna zamknięcia w jedną falę.
@@ -48,21 +54,21 @@ function buildDate(dateStr: string, timeStr: string): Date {
 // ==================
 function buildClosureWaves(trains: any[], now: Date): ClosureWave[] {
   const waves: ClosureWave[] = [];
- 
+
   for (const train of trains) {
     const dep = train.departureDateTime;
     const from = addMinutes(dep, -BUFFER_BEFORE_MIN);
     const to = addMinutes(dep, BUFFER_AFTER_MIN);
- 
+
     // Pomiń pociągi których okno już minęło lub trwa teraz (obsługiwane osobno)
     if (to <= now) continue;
     if (from <= now) continue;
- 
+
     const entry: TrainEntry = {
       number: train.trainNumber,
       departure: dep.toISOString(),
     };
- 
+
     // Sprawdź czy nakłada się na ostatnią falę
     const last = waves[waves.length - 1];
     if (last && from <= last.closeEnd) {
@@ -74,10 +80,10 @@ function buildClosureWaves(trains: any[], now: Date): ClosureWave[] {
       waves.push({ closeAt: from, closeEnd: to, trains: [entry] });
     }
   }
- 
+
   return waves;
 }
- 
+
 // ==================
 // ENDPOINT
 // ==================
@@ -85,7 +91,7 @@ export async function getStatus(req: Request, res: Response) {
   const now = new Date();
   const apiKey = process.env.PLK_API_KEY!;
   const today = now.toISOString().slice(0, 10);
- 
+
   try {
     // ==================
     // SPRAWDZAMY CACHE
@@ -95,27 +101,41 @@ export async function getStatus(req: Request, res: Response) {
       cachedData = data;
       lastFetch = Date.now();
     }
- 
+
     const routes = cachedData.routes || [];
- 
+
     // ==================
     // WYCIĄGAMY POCIĄGI
-    // Filtr po końcu okna zamknięcia (dep + BUFFER_AFTER_MIN), nie po czasie odjazdu —
-    // żeby nie pominąć pociągu który odjechał chwilę temu ale szlaban jest jeszcze zamknięty.
+    //
+    // Czas przejazdu przez szlaban zależy od kierunku jazdy:
+    //   - z Olsztyna (orderNumber <= 15): pociąg mija przejazd PRZED stacją → arrivalTime
+    //   - z Iławy    (orderNumber  > 15): pociąg mija przejazd ZA stacją    → departureTime
+    //
+    // Filtr po końcu okna zamknięcia (crossingTime + BUFFER_AFTER_MIN), nie po czasie odjazdu —
+    // żeby nie pominąć pociągu który minął przejazd chwilę temu ale szlaban jest jeszcze zamknięty.
     // ==================
     const trains = routes
       .flatMap((r: any) => {
         if (!r.stations || !r.operatingDates) return [];
- 
+
         const station = r.stations.find(
-          (s: any) => s.stationId === STATION_ID && s.departureTime
+          (s: any) =>
+            s.stationId === STATION_ID &&
+            (s.departureTime || s.arrivalTime)
         );
         if (!station) return [];
- 
+
+        const crossingTime =
+          station.orderNumber <= OLSZTYN_DIRECTION_MAX_ORDER
+            ? station.arrivalTime
+            : station.departureTime;
+
+        if (!crossingTime) return [];
+
         return r.operatingDates.map((d: string) => ({
           trainNumber: r.nationalNumber,
           category: r.commercialCategorySymbol,
-          departureDateTime: buildDate(d, station.departureTime),
+          departureDateTime: buildDate(d, crossingTime),
         }));
       })
       .filter(
@@ -128,7 +148,7 @@ export async function getStatus(req: Request, res: Response) {
         (a: any, b: any) =>
           a.departureDateTime.getTime() - b.departureDateTime.getTime()
       );
- 
+
     // ==================
     // AKTUALNE ZAMKNIĘCIE
     // Zbieramy wszystkie pociągi których okno obejmuje teraz.
@@ -137,12 +157,12 @@ export async function getStatus(req: Request, res: Response) {
     let closed = false;
     let currentCloseEnd: Date | null = null;
     const currentTrains: TrainEntry[] = [];
- 
+
     for (const train of trains) {
       const dep = train.departureDateTime;
       const from = addMinutes(dep, -BUFFER_BEFORE_MIN);
       const to = addMinutes(dep, BUFFER_AFTER_MIN);
- 
+
       if (now >= from && now <= to) {
         closed = true;
         currentTrains.push({
@@ -154,7 +174,7 @@ export async function getStatus(req: Request, res: Response) {
         }
       }
     }
- 
+
     // ==================
     // NADCHODZĄCE FALE ZAMKNIĘCIA
     // Scala nakładające się okna w jedną falę — obsługuje sytuację
@@ -162,7 +182,7 @@ export async function getStatus(req: Request, res: Response) {
     // ==================
     const upcomingWaves = buildClosureWaves(trains, now);
     const nextWave = upcomingWaves[0] ?? null;
- 
+
     res.json({
       closed,
       checkedAt: now.toISOString(),
