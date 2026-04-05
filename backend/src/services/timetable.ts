@@ -34,18 +34,28 @@ export async function getStatus(req: Request, res: Response) {
     const trains = routes
       .flatMap((r: any) => {
         if (!r.stations || !r.operatingDates) return [];
+
         const station = r.stations.find(
           (s: any) => s.stationId === STATION_ID && s.departureTime
         );
         if (!station) return [];
+
         return r.operatingDates.map((d: string) => ({
           trainNumber: r.nationalNumber,
           category: r.commercialCategorySymbol,
           departureDateTime: buildDate(d, station.departureTime),
         }));
       })
-      .filter((t: any) => t.category && t.category !== "BUS")
-      .sort((a: any, b: any) => a.departureDateTime.getTime() - b.departureDateTime.getTime());
+      .filter(
+        (t: any) =>
+          t.category &&
+          t.category !== "BUS" &&
+          addMinutes(t.departureDateTime, BUFFER_AFTER_MIN).getTime() >= now.getTime()
+      )
+      .sort(
+        (a: any, b: any) =>
+          a.departureDateTime.getTime() - b.departureDateTime.getTime()
+      );
 
     let closed = false;
     let currentCloseEnd: Date | null = null;
