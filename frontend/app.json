@@ -45,7 +45,7 @@
       "reactCompiler": true
     },
     "extra": {
-      "apiUrl": "http://192.168.1.100:3000/api/v1/crossing"
+      "apiUrl": "https://rail-crossing-ostroda-production.up.railway.app/api/v1/crossing"
     }
   }
 }
