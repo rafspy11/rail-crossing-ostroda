@@ -43,9 +43,6 @@
     "experiments": {
       "typedRoutes": true,
       "reactCompiler": true
-    },
-    "extra": {
-      "apiUrl": "https://rail-crossing-ostroda-production.up.railway.app/api/v1/crossing"
     }
   }
 }

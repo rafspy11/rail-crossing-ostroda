@@ -1,13 +1,107 @@
 import { useEffect, useState, useRef } from "react";
-import { View, Text, StyleSheet, Animated } from "react-native";
+import { View, Text, StyleSheet, Animated, Platform } from "react-native";
 import { getCrossingStatus } from "../services/api";
 
+// ==================
+// KONFIGURACJA POWIADOMIEŃ
+// ==================
+const NOTIFY_BEFORE_MIN = 5; // powiadomienie X minut przed zamknięciem
+
+// expo-notifications rejestruje push token jako efekt uboczny już przy imporcie modułu.
+// Na webie (statyczny SSR w Node, bez prawdziwego localStorage) ten efekt crashuje cały
+// proces Metro/Node — dlatego moduł ładujemy tylko na natywnych platformach.
+const Notifications: typeof import("expo-notifications") | null =
+  Platform.OS === "web" ? null : require("expo-notifications");
+
+// Jak zachować się gdy powiadomienie przyjdzie gdy aplikacja jest otwarta
+if (Notifications) {
+  Notifications.setNotificationHandler({
+    handleNotification: async () => ({
+      shouldShowBanner: true,
+      shouldShowList: true,
+      shouldPlaySound: true,
+      shouldSetBadge: false,
+    }),
+  });
+}
+
+// ==================
+// HELPERY POWIADOMIEŃ
+// ==================
+async function requestNotificationPermission(): Promise<boolean> {
+  if (!Notifications) return false;
+
+  const { status: existing } = await Notifications.getPermissionsAsync();
+  if (existing === "granted") return true;
+
+  const { status } = await Notifications.requestPermissionsAsync();
+  return status === "granted";
+}
+
+async function scheduleNotifications(data: any) {
+  if (!Notifications) return;
+
+  // Anuluj wszystkie poprzednie zaplanowane powiadomienia
+  await Notifications.cancelAllScheduledNotificationsAsync();
+
+  if (!data.nextCloseAt) return;
+
+  const closeAt = new Date(data.nextCloseAt).getTime();
+  const now = Date.now();
+
+  const trainNumbers = data.nextTrains
+    ? data.nextTrains.map((t: any) => t.number).join(", ")
+    : "—";
+
+  // Powiadomienie 1: X minut przed zamknięciem
+  const warningTime = closeAt - NOTIFY_BEFORE_MIN * 60_000;
+  if (warningTime > now) {
+    await Notifications.scheduleNotificationAsync({
+      content: {
+        title: "🚦 Zbliża się zamknięcie przejazdu",
+        body: `Za ${NOTIFY_BEFORE_MIN} min — pociąg ${trainNumbers}`,
+        sound: true,
+      },
+      trigger: {
+        type: Notifications.SchedulableTriggerInputTypes.DATE,
+        date: new Date(warningTime),
+      },
+    });
+  }
+
+  // Powiadomienie 2: dokładnie w momencie zamknięcia
+  if (closeAt > now) {
+    await Notifications.scheduleNotificationAsync({
+      content: {
+        title: "🔴 Przejazd zamknięty",
+        body: `Pociąg ${trainNumbers}`,
+        sound: true,
+      },
+      trigger: {
+        type: Notifications.SchedulableTriggerInputTypes.DATE,
+        date: new Date(closeAt),
+      },
+    });
+  }
+}
+
+// ==================
+// KOMPONENT
+// ==================
 export default function App() {
   const [status, setStatus] = useState<any>(null);
   const [secondsCountdown, setSecondsCountdown] = useState<number | null>(null);
+  const [notificationsGranted, setNotificationsGranted] = useState<boolean>(false);
 
   const backgroundColor = useRef(new Animated.Value(0)).current;
   const titleOpacity = useRef(new Animated.Value(1)).current;
+
+  // ==================
+  // UPRAWNIENIA DO POWIADOMIEŃ
+  // ==================
+  useEffect(() => {
+    requestNotificationPermission().then(setNotificationsGranted);
+  }, []);
 
   // ==================
   // FETCH STATUS
@@ -32,14 +126,19 @@ export default function App() {
           }
           setSecondsCountdown(initialSeconds);
 
-          // animacja tła
+          // Zaplanuj powiadomienia jeśli mamy uprawnienia
+          if (notificationsGranted) {
+            scheduleNotifications(data);
+          }
+
+          // Animacja tła
           Animated.timing(backgroundColor, {
             toValue: data.closed ? 1 : 0,
             duration: 500,
             useNativeDriver: false,
           }).start();
 
-          // miganie tytułu przy zamknięciu
+          // Miganie tytułu przy zamknięciu
           if (data.closed) {
             Animated.loop(
               Animated.sequence([
@@ -58,7 +157,7 @@ export default function App() {
     fetchStatus();
     const interval = setInterval(fetchStatus, 30_000);
     return () => clearInterval(interval);
-  }, []);
+  }, [notificationsGranted]);
 
   // ==================
   // TIMER ODLICZANIA
@@ -89,7 +188,7 @@ export default function App() {
     );
   }
 
-  // odliczanie tekstowe
+  // Odliczanie tekstowe
   let countdownText = "";
   if (status.closed && status.currentCloseEnd && secondsCountdown !== null) {
     const min = Math.floor(secondsCountdown / 60);
@@ -133,6 +232,13 @@ export default function App() {
       <Text style={styles.textSmall}>
         Sprawdzono: {new Date(status.checkedAt).toLocaleTimeString()}
       </Text>
+
+      {/* Info o powiadomieniach */}
+      {!notificationsGranted && (
+        <Text style={styles.textSmall}>
+          ⚠️ Powiadomienia wyłączone — włącz je w ustawieniach telefonu
+        </Text>
+      )}
     </Animated.View>
   );
 }
