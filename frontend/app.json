@@ -43,6 +43,9 @@
     "experiments": {
       "typedRoutes": true,
       "reactCompiler": true
+    },
+    "extra": {
+      "apiUrl": "https://rail-crossing-ostroda-backend.onrender.com/api/v1/crossing"
     }
   }
 }
