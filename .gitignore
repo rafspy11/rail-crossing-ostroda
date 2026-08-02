@@ -46,3 +46,4 @@ app-example
 backend/.env
 
 backend/plk-response.json
+backend/data/

@@ -85,24 +85,35 @@ function buildClosureWaves(trains: any[], now: Date): ClosureWave[] {
 }
 
 // ==================
-// ENDPOINT
+// TYPY WYNIKU
 // ==================
-export async function getStatus(req: Request, res: Response) {
-  const now = new Date();
+export interface ScheduleSnapshot {
+  closed: boolean;
+  checkedAt: Date;
+  currentTrains: TrainEntry[] | null;
+  currentCloseAt: Date | null;
+  currentCloseEnd: Date | null;
+  nextWave: ClosureWave | null;
+}
+
+// ==================
+// WYLICZENIE STANU SZLABANU
+// Współdzielone przez endpoint /status oraz cykliczny job wysyłający powiadomienia push.
+// ==================
+export async function computeSchedule(now: Date): Promise<ScheduleSnapshot> {
   const apiKey = process.env.PLK_API_KEY!;
   const today = now.toISOString().slice(0, 10);
 
-  try {
-    // ==================
-    // SPRAWDZAMY CACHE
-    // ==================
-    if (!cachedData || Date.now() - lastFetch > CACHE_TTL) {
-      const data: any = await getSchedules(apiKey, STATION_ID.toString(), today);
-      cachedData = data;
-      lastFetch = Date.now();
-    }
+  // ==================
+  // SPRAWDZAMY CACHE
+  // ==================
+  if (!cachedData || Date.now() - lastFetch > CACHE_TTL) {
+    const data: any = await getSchedules(apiKey, STATION_ID.toString(), today);
+    cachedData = data;
+    lastFetch = Date.now();
+  }
 
-    const routes = cachedData.routes || [];
+  const routes = cachedData.routes || [];
 
     // ==================
     // WYCIĄGAMY POCIĄGI
@@ -149,46 +160,68 @@ export async function getStatus(req: Request, res: Response) {
           a.departureDateTime.getTime() - b.departureDateTime.getTime()
       );
 
-    // ==================
-    // AKTUALNE ZAMKNIĘCIE
-    // Zbieramy wszystkie pociągi których okno obejmuje teraz.
-    // currentCloseEnd = najpóźniejszy koniec spośród wszystkich aktualnych.
-    // ==================
-    let closed = false;
-    let currentCloseEnd: Date | null = null;
-    const currentTrains: TrainEntry[] = [];
+  // ==================
+  // AKTUALNE ZAMKNIĘCIE
+  // Zbieramy wszystkie pociągi których okno obejmuje teraz.
+  // currentCloseAt = najwcześniejszy początek, currentCloseEnd = najpóźniejszy koniec.
+  // ==================
+  let closed = false;
+  let currentCloseAt: Date | null = null;
+  let currentCloseEnd: Date | null = null;
+  const currentTrains: TrainEntry[] = [];
 
-    for (const train of trains) {
-      const dep = train.departureDateTime;
-      const from = addMinutes(dep, -BUFFER_BEFORE_MIN);
-      const to = addMinutes(dep, BUFFER_AFTER_MIN);
+  for (const train of trains) {
+    const dep = train.departureDateTime;
+    const from = addMinutes(dep, -BUFFER_BEFORE_MIN);
+    const to = addMinutes(dep, BUFFER_AFTER_MIN);
 
-      if (now >= from && now <= to) {
-        closed = true;
-        currentTrains.push({
-          number: train.trainNumber,
-          departure: dep.toISOString(),
-        });
-        if (!currentCloseEnd || to > currentCloseEnd) {
-          currentCloseEnd = to;
-        }
+    if (now >= from && now <= to) {
+      closed = true;
+      currentTrains.push({
+        number: train.trainNumber,
+        departure: dep.toISOString(),
+      });
+      if (!currentCloseAt || from < currentCloseAt) {
+        currentCloseAt = from;
+      }
+      if (!currentCloseEnd || to > currentCloseEnd) {
+        currentCloseEnd = to;
       }
     }
+  }
 
     // ==================
     // NADCHODZĄCE FALE ZAMKNIĘCIA
     // Scala nakładające się okna w jedną falę — obsługuje sytuację
     // gdy dwa pociągi jadą jeden po drugim w krótkim odstępie czasu.
     // ==================
-    const upcomingWaves = buildClosureWaves(trains, now);
-    const nextWave = upcomingWaves[0] ?? null;
+  const upcomingWaves = buildClosureWaves(trains, now);
+  const nextWave = upcomingWaves[0] ?? null;
+
+  return {
+    closed,
+    checkedAt: now,
+    currentTrains: currentTrains.length > 0 ? currentTrains : null,
+    currentCloseAt,
+    currentCloseEnd,
+    nextWave,
+  };
+}
+
+// ==================
+// ENDPOINT
+// ==================
+export async function getStatus(req: Request, res: Response) {
+  try {
+    const snapshot = await computeSchedule(new Date());
+    const { nextWave } = snapshot;
 
     res.json({
-      closed,
-      checkedAt: now.toISOString(),
+      closed: snapshot.closed,
+      checkedAt: snapshot.checkedAt.toISOString(),
       // Aktualne zamknięcie
-      currentTrains: currentTrains.length > 0 ? currentTrains : null,
-      currentCloseEnd: currentCloseEnd?.toISOString() || null,
+      currentTrains: snapshot.currentTrains,
+      currentCloseEnd: snapshot.currentCloseEnd?.toISOString() || null,
       // Następna fala
       nextCloseAt: nextWave?.closeAt.toISOString() || null,
       nextCloseEnd: nextWave?.closeEnd.toISOString() || null,

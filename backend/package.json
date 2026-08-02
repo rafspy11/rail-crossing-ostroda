@@ -16,6 +16,7 @@
   "dependencies": {
     "cors": "^2.8.5",
     "dotenv": "^17.2.3",
+    "expo-server-sdk": "^7.0.0",
     "express": "^5.2.1",
     "node-fetch": "^3.3.2"
   },

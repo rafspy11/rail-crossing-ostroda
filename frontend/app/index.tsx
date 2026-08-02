@@ -1,6 +1,7 @@
 import { useEffect, useState, useRef } from "react";
 import { View, Text, StyleSheet, Animated, Platform, Pressable } from "react-native";
-import { getCrossingStatus } from "../services/api";
+import Constants from "expo-constants";
+import { getCrossingStatus, registerPushToken, suppressServerNotification } from "../services/api";
 
 // ==================
 // KONFIGURACJA POWIADOMIEŃ
@@ -38,7 +39,7 @@ async function requestNotificationPermission(): Promise<boolean> {
   return status === "granted";
 }
 
-async function scheduleNotifications(data: any) {
+async function scheduleNotifications(data: any, pushToken: string | null) {
   if (!Notifications) return;
 
   // Anuluj wszystkie poprzednie zaplanowane powiadomienia
@@ -46,8 +47,15 @@ async function scheduleNotifications(data: any) {
 
   if (!data.nextCloseAt) return;
 
-  const closeAt = new Date(data.nextCloseAt).getTime();
+  const closureId: string = data.nextCloseAt;
+  const closeAt = new Date(closureId).getTime();
   const now = Date.now();
+
+  // To urządzenie samo zaplanowało powiadomienie dla tej fali — powiedz serwerowi,
+  // żeby nie wysyłał tego samego alertu jeszcze raz przez push.
+  if (pushToken) {
+    suppressServerNotification(pushToken, closureId);
+  }
 
   const trainNumbers = data.nextTrains
     ? data.nextTrains.map((t: any) => t.number).join(", ")
@@ -97,12 +105,29 @@ export default function App() {
   const backgroundColor = useRef(new Animated.Value(0)).current;
   const titleOpacity = useRef(new Animated.Value(1)).current;
   const fetchStatusRef = useRef<() => void>(() => {});
+  const pushTokenRef = useRef<string | null>(null);
 
   // ==================
-  // UPRAWNIENIA DO POWIADOMIEŃ
+  // UPRAWNIENIA DO POWIADOMIEŃ + REJESTRACJA TOKENA PUSH
   // ==================
   useEffect(() => {
-    requestNotificationPermission().then(setNotificationsGranted);
+    requestNotificationPermission().then(async (granted) => {
+      setNotificationsGranted(granted);
+      if (!granted || !Notifications) return;
+
+      try {
+        const projectId = Constants.expoConfig?.extra?.eas?.projectId;
+        const { data: token } = await Notifications.getExpoPushTokenAsync(
+          projectId ? { projectId } : undefined
+        );
+        pushTokenRef.current = token;
+        registerPushToken(token);
+      } catch (err) {
+        // Wymaga projektu powiązanego przez `eas init` — bez tego appka działa dalej,
+        // po prostu bez powiadomień serwerowych (lokalne nadal działają).
+        console.warn("Nie udało się pobrać tokena push:", err);
+      }
+    });
   }, []);
 
   // ==================
@@ -131,7 +156,7 @@ export default function App() {
 
           // Zaplanuj powiadomienia jeśli mamy uprawnienia
           if (notificationsGranted) {
-            scheduleNotifications(data);
+            scheduleNotifications(data, pushTokenRef.current);
           }
 
           // Animacja tła

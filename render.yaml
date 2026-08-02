@@ -9,3 +9,5 @@ services:
     envVars:
       - key: PLK_API_KEY
         sync: false
+      - key: NOTIFY_TICK_SECRET
+        sync: false
