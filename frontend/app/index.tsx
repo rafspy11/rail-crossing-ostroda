@@ -1,5 +1,5 @@
 import { useEffect, useState, useRef } from "react";
-import { View, Text, StyleSheet, Animated, Platform } from "react-native";
+import { View, Text, StyleSheet, Animated, Platform, Pressable } from "react-native";
 import { getCrossingStatus } from "../services/api";
 
 // ==================
@@ -90,11 +90,13 @@ async function scheduleNotifications(data: any) {
 // ==================
 export default function App() {
   const [status, setStatus] = useState<any>(null);
+  const [error, setError] = useState<string | null>(null);
   const [secondsCountdown, setSecondsCountdown] = useState<number | null>(null);
   const [notificationsGranted, setNotificationsGranted] = useState<boolean>(false);
 
   const backgroundColor = useRef(new Animated.Value(0)).current;
   const titleOpacity = useRef(new Animated.Value(1)).current;
+  const fetchStatusRef = useRef<() => void>(() => {});
 
   // ==================
   // UPRAWNIENIA DO POWIADOMIEŃ
@@ -110,6 +112,7 @@ export default function App() {
     const fetchStatus = () => {
       getCrossingStatus()
         .then((data) => {
+          setError(null);
           setStatus(data);
 
           let initialSeconds: number | null = null;
@@ -151,9 +154,13 @@ export default function App() {
             titleOpacity.setValue(1);
           }
         })
-        .catch(console.error);
+        .catch((err) => {
+          console.error(err);
+          setError("Nie udało się pobrać danych o przejeździe.");
+        });
     };
 
+    fetchStatusRef.current = fetchStatus;
     fetchStatus();
     const interval = setInterval(fetchStatus, 30_000);
     return () => clearInterval(interval);
@@ -179,6 +186,19 @@ export default function App() {
     inputRange: [0, 1],
     outputRange: ["#e0ffe0", "#ffcccc"],
   });
+
+  if (!status && error) {
+    return (
+      <View style={styles.container}>
+        <Text style={[styles.title, { color: "#a00000" }]}>⚠️ Błąd połączenia</Text>
+        <Text style={styles.text}>{error}</Text>
+        <Text style={styles.textSmall}>Ponawiam automatycznie co 30 s.</Text>
+        <Pressable style={styles.retryButton} onPress={() => fetchStatusRef.current()}>
+          <Text style={styles.retryButtonText}>Spróbuj ponownie</Text>
+        </Pressable>
+      </View>
+    );
+  }
 
   if (!status) {
     return (
@@ -239,6 +259,13 @@ export default function App() {
           ⚠️ Powiadomienia wyłączone — włącz je w ustawieniach telefonu
         </Text>
       )}
+
+      {/* Baner nieudanego odświeżenia — dane poniżej są ostatnimi znanymi */}
+      {error && (
+        <Text style={[styles.textSmall, { color: "#a00000" }]}>
+          ⚠️ Nie udało się odświeżyć — pokazuję ostatnio znane dane.
+        </Text>
+      )}
     </Animated.View>
   );
 }
@@ -248,4 +275,12 @@ const styles = StyleSheet.create({
   title: { fontSize: 26, fontWeight: "bold", marginBottom: 12 },
   text: { fontSize: 20, marginVertical: 2 },
   textSmall: { fontSize: 14, marginTop: 6, color: "#555" },
+  retryButton: {
+    marginTop: 16,
+    paddingVertical: 10,
+    paddingHorizontal: 20,
+    backgroundColor: "#a00000",
+    borderRadius: 8,
+  },
+  retryButtonText: { color: "#fff", fontSize: 16, fontWeight: "bold" },
 });

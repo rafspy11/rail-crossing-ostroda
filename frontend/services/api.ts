@@ -6,5 +6,8 @@ const API_URL =
 
 export async function getCrossingStatus() {
   const res = await fetch(`${API_URL}/status`);
+  if (!res.ok) {
+    throw new Error(`API error: ${res.status}`);
+  }
   return res.json();
 }
