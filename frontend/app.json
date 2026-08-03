@@ -19,7 +19,8 @@
         "monochromeImage": "./assets/images/android-icon-monochrome.png"
       },
       "edgeToEdgeEnabled": true,
-      "predictiveBackGestureEnabled": false
+      "predictiveBackGestureEnabled": false,
+      "package": "com.rafspy11.frontend"
     },
     "web": {
       "output": "static",
@@ -45,7 +46,12 @@
       "reactCompiler": true
     },
     "extra": {
-      "apiUrl": "https://rail-crossing-ostroda-backend.onrender.com/api/v1/crossing"
-    }
+      "apiUrl": "https://rail-crossing-ostroda-backend.onrender.com/api/v1/crossing",
+      "router": {},
+      "eas": {
+        "projectId": "d214bef4-4b0a-493e-aa55-53d08a725dba"
+      }
+    },
+    "owner": "rafspy11"
   }
 }
