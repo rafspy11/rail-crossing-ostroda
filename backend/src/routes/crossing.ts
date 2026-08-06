@@ -1,6 +1,6 @@
 import { Router, Request, Response } from "express";
 import { getStatus } from "../services/timetable";
-import { addToken, suppressForClosure } from "../services/subscribers";
+import { addToken, getTokens, suppressForClosure } from "../services/subscribers";
 import { runNotifyTick } from "../services/notify";
 
 const router = Router();
@@ -14,6 +14,11 @@ router.post("/register-token", (req: Request, res: Response) => {
   }
   addToken(token);
   res.json({ ok: true });
+});
+
+// Do weryfikacji że rejestracja tokenów działa — bez ujawniania samych tokenów.
+router.get("/subscribers-count", (req: Request, res: Response) => {
+  res.json({ count: getTokens().length });
 });
 
 router.post("/suppress-notification", (req: Request, res: Response) => {
