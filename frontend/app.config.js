@@ -1,0 +1,60 @@
+module.exports = {
+  expo: {
+    name: "frontend",
+    slug: "frontend",
+    version: "1.0.0",
+    orientation: "portrait",
+    icon: "./assets/images/icon.png",
+    scheme: "frontend",
+    userInterfaceStyle: "automatic",
+    newArchEnabled: true,
+    ios: {
+      supportsTablet: true,
+    },
+    android: {
+      adaptiveIcon: {
+        backgroundColor: "#E6F4FE",
+        foregroundImage: "./assets/images/android-icon-foreground.png",
+        backgroundImage: "./assets/images/android-icon-background.png",
+        monochromeImage: "./assets/images/android-icon-monochrome.png",
+      },
+      edgeToEdgeEnabled: true,
+      predictiveBackGestureEnabled: false,
+      package: "com.rafspy11.frontend",
+      // Na EAS Build pochodzi z sekretu plikowego GOOGLE_SERVICES_FILE (patrz README).
+      // Lokalnie spada na plik trzymany poza gitem w tym samym folderze.
+      googleServicesFile: process.env.GOOGLE_SERVICES_FILE ?? "./google-services.json",
+    },
+    web: {
+      output: "static",
+      favicon: "./assets/images/favicon.png",
+    },
+    plugins: [
+      "expo-router",
+      [
+        "expo-splash-screen",
+        {
+          image: "./assets/images/splash-icon.png",
+          imageWidth: 200,
+          resizeMode: "contain",
+          backgroundColor: "#ffffff",
+          dark: {
+            backgroundColor: "#000000",
+          },
+        },
+      ],
+    ],
+    experiments: {
+      typedRoutes: true,
+      reactCompiler: true,
+    },
+    extra: {
+      apiUrl: "https://rail-crossing-ostroda-backend.onrender.com/api/v1/crossing",
+      router: {},
+      eas: {
+        projectId: "d214bef4-4b0a-493e-aa55-53d08a725dba",
+      },
+    },
+    owner: "rafspy11",
+  },
+};

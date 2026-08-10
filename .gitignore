@@ -47,3 +47,9 @@ backend/.env
 
 backend/plk-response.json
 backend/data/
+
+# Firebase — nigdy nie commitować (google-services.json wgrywany do EAS jako
+# sekret plikowy GOOGLE_SERVICES_FILE; klucz FCM V1 nie powinien nigdzie w repo się pojawić)
+frontend/google-services.json
+frontend/GoogleService-Info.plist
+*firebase-adminsdk*.json

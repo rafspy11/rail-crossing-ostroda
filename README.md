@@ -72,7 +72,7 @@ npm start
 
 Zeskanuj wyświetlony kod QR aplikacją **Expo Go** na telefonie.
 
-Domyślnie appka łączy się z produkcyjnym backendem na Render (patrz niżej). Żeby testować z lokalnym backendem zamiast produkcyjnego, usuń tymczasowo `extra.apiUrl` z `frontend/app.json` — wtedy zadziała fallback z `frontend/services/api.ts` (`http://localhost:3000`).
+Domyślnie appka łączy się z produkcyjnym backendem na Render (patrz niżej). Żeby testować z lokalnym backendem zamiast produkcyjnego, usuń tymczasowo `extra.apiUrl` z `frontend/app.config.js` — wtedy zadziała fallback z `frontend/services/api.ts` (`http://localhost:3000`).
 
 > ⚠️ Przy testowaniu z lokalnym backendem telefon i komputer muszą być w tej samej sieci Wi-Fi, a `localhost` w fallbacku trzeba zamienić na lokalny adres IP komputera, np. `192.168.1.x`.
 
@@ -87,7 +87,7 @@ Backend jest wdrożony jako darmowa usługa na [Render](https://render.com) z ko
 3. Uzupełnij zmienne środowiskowe:
    - `PLK_API_KEY` — klucz do API PLK,
    - `NOTIFY_TICK_SECRET` (opcjonalnie) — sekret zabezpieczający endpoint `/notify-tick` przed przypadkowym wywołaniem z zewnątrz.
-4. Po wdrożeniu adres usługi (`https://<nazwa>.onrender.com`) wpisz jako `extra.apiUrl` w `frontend/app.json` (z dopiskiem `/api/v1/crossing`).
+4. Po wdrożeniu adres usługi (`https://<nazwa>.onrender.com`) wpisz jako `extra.apiUrl` w `frontend/app.config.js` (z dopiskiem `/api/v1/crossing`).
 
 Darmowy plan usypia serwer po 15 min bezczynności — pierwsze zapytanie po przerwie może potrwać do kilkudziesięciu sekund.
 
@@ -106,11 +106,32 @@ Wysyłka prawdziwych powiadomień push wymaga `projectId` z konta Expo:
 
 ```bash
 cd frontend
-npx eas login
-npx eas init
+npx eas-cli login
+npx eas-cli init
 ```
 
 Bez tego appka nadal działa normalnie (status, lokalne powiadomienia) — po prostu pomija rejestrację tokena push i loguje ostrzeżenie w konsoli.
+
+### Firebase / FCM (wymagane do push na Androidzie)
+
+Expo Go na Androidzie **nie obsługuje** zdalnych powiadomień push (tylko iOS) — do testowania i realnego działania potrzebny jest development/production build (`eas build`) oraz projekt Firebase:
+
+1. Załóż darmowy projekt na [console.firebase.google.com](https://console.firebase.google.com), dodaj aplikację Android o package name zgodnym z `android.package` w `app.config.js` (`com.rafspy11.frontend`).
+2. Pobierz `google-services.json` i wgraj go jako **plikowy sekret EAS** (nigdy nie commitować!):
+   ```bash
+   npx eas-cli env:set development --name GOOGLE_SERVICES_FILE --type file --value ./sciezka/do/google-services.json --visibility sensitive --non-interactive
+   ```
+   `app.config.js` odczytuje ten sekret przez `process.env.GOOGLE_SERVICES_FILE` przy buildzie na EAS; lokalnie spada na plik `frontend/google-services.json` (też gitignorowany — trzeba go tam ręcznie skopiować dla buildów lokalnych).
+3. W konsoli Firebase → ⚙️ Project settings → **Service accounts** → "Generate new private key" — to osobny, prawdziwy sekret (klucz do wysyłki pushy). Wgraj go interaktywnie:
+   ```bash
+   npx eas-cli credentials
+   ```
+   → Android → Push Notifications: FCM V1 service account key → Upload a new service account key.
+4. Po skonfigurowaniu obu rzeczy zbuduj development client:
+   ```bash
+   npx eas-cli build --profile development --platform android
+   ```
+   i zainstaluj powstały `.apk` na telefonie (zamiast Expo Go), potem `npx expo start --dev-client`.
 
 ---
 
